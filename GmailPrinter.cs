@@ -19,46 +19,42 @@ using Google.Apis.Gmail.v1.Data;
 using Google.Apis.Services;
 using Google.Apis.Util.Store;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Drawing;
-using System.Drawing.Printing;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Timers;
-using Thread = System.Threading.Thread;
 
-namespace GmailPrinter
+using System.Diagnostics;
+
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Timers;
+
+namespace PriorityEmailApp
 {
 
-	//TODO:
-	//Set this on a loop - check every five minutes?
-	//sanity checking. error printing?
-	//figure out how to make the API key permanant
-
-	//todo:
-	//key expiration sanity checking. delete the credentials.json if we can't log in.	
-
+//TODO:
+//throw this entire class into a dedicated "MailHandler" Class. use this as a management class.
+//track uptime, last email recieved, etc.
+//logging! Mostly just for errors?
+//Config!
+//	Debugmode
+//	CheckRate
+//	Background Process?
+//
+//error fixes:
+//Prompt the user to reset
 
 	class GmailPrinter
 	{
-		private static bool debugMode = true; //if true, prevents printing and setting emails as read.
-		private static Font printFont = new Font("Consolas", 12);
-		private static StreamReader streamToPrint;
+
 		// If modifying these scopes, delete your previously saved credentials
 		// at ~/.credentials/gmail-dotnet-quickstart.json
 		static string[] Scopes = { GmailService.Scope.GmailModify };
 		static string ApplicationName = "AutoGmailPrinter";
 		static GmailService service;
+		
+		static IList<MessagePart> payloadParts; //does this need to be here?
 
-		static IList<MessagePart> xd;
 
 
-
-		static void Main(string[] args)
+		GmailPrinter()
 		{
 			UserCredential credential;
 
@@ -84,37 +80,29 @@ namespace GmailPrinter
 				ApplicationName = ApplicationName,
 			});
 
-			// Define parameters of request.
-			//    UsersResource.MessagesResource.ListRequest request = service.Users.Messages.List("me", "is:unread");
-
-			getUnreadEmails(service);
-			System.Timers.Timer timer = new System.Timers.Timer(TimeSpan.FromMinutes(.25).TotalMilliseconds);
-			timer.AutoReset = true;
-			timer.Elapsed += new ElapsedEventHandler(EmailCaller);
-			timer.Start();
-			while(true) //horrible!
-			{ 
-				string typed = Console.ReadLine(); // Prevents program from exiting.
-				if (typed == "exit" || typed == "x")
-					return;
-			}
 		}
 
-
-		public static void EmailCaller(object sender, ElapsedEventArgs e)
-		{
-			Console.WriteLine("checking for new mail...");
-			getUnreadEmails(service);
-		}
 
 		// Get UNREAD messages
-		public static void getUnreadEmails(GmailService service)
+		public void getUnreadEmails()
 		{
 			UsersResource.MessagesResource.ListRequest Req_messages = service.Users.Messages.List("me");
 			// Filter by labels
 			Req_messages.LabelIds = new List<String>() { "INBOX", "UNREAD" };
 			// Get message list
-			IList<Message> messages = Req_messages.Execute().Messages;
+			IList<Message> messages = null;
+			try
+			{
+				messages = Req_messages.Execute().Messages;
+				if (messages != null)
+					Console.WriteLine(messages.Count + " Messages found.");
+				else
+					Console.WriteLine("No Messages found.");
+			}
+			catch (Exception E)
+			{
+				Console.WriteLine("Error fetching messages! Internet issue?");
+			}
 			if ((messages != null) && (messages.Count > 0))
 			{
 				foreach (Message List_msg in messages)
@@ -129,7 +117,7 @@ namespace GmailPrinter
 
 					SendToPrinter(msg);
 					//and set it as read, so it doesn't print twice.
-					if(!debugMode)
+					if(!ApplicationManager.ConfigLoader.debugMode)
 						service.Users.Messages.Modify(mods, "me", List_msg.Id).Execute();
 				}
 
@@ -138,11 +126,11 @@ namespace GmailPrinter
 
 		private static void SendToPrinter(Message msg)
 		{
-
+			
 			String to = "";
 			String from = "";
 			String date = "";
-			string subject = "";
+			string subject = ""; //todo, make this a dict w/ a method to generate from payload.headers
 
 
 			foreach (var x in msg.Payload.Headers) //there's probably a better way to do this. too bad!
@@ -169,31 +157,19 @@ namespace GmailPrinter
 			String EmailSentBy = "From: " + from; //from
 			String EmailSentDate = "Date: " + date; //date
 			String EmailSubject = "Subject: " + subject; //subject
+			//todo, count attachments?
 
-			xd = msg.Payload.Parts;
+			payloadParts = msg.Payload.Parts;
+			String bodyText = BodyTextFromPayloadParts(payloadParts);
 
-			String bodyText = msg.Payload.Parts[0].Body.Data;
+			bodyText = SanitizeEmailBodyText(bodyText);
 
-			try { 
-			if(bodyText != null)
-				{ 
-					byte[] data = Convert.FromBase64String(bodyText);
-				bodyText = Encoding.UTF8.GetString(data);
-				}
 
-			else
-				{
-					bodyText = "WARNING: There was no message content associated with this email. this is likely an error.";
-				}
-
+			if(bodyText == "No Message Attached.")
+			{
+				bodyText = "!Read Error! Snippet: " + msg.Snippet;
 			}
 		
-			
-			catch (Exception e)
-			{
-				Console.WriteLine(e.Message);
-				bodyText = e.Message;
-			}
 			string[] toPrintLines =
 				{ EmailSentTo, EmailSentBy, EmailSentDate, EmailSubject, "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-", bodyText};
 
@@ -207,47 +183,69 @@ namespace GmailPrinter
 
 			File.WriteAllLines("EmailTemp.txt", toPrintLines);
 
-			if(!debugMode)
+			if(!ApplicationManager.ConfigLoader.debugMode)
 				PrintWrittenFile();
 
 		}
 
-		private static void PrintWrittenFile()
+		private static string SanitizeEmailBodyText(string bodyText)
 		{
-			PrintDocument printDocument1 = new PrintDocument();
-			printDocument1.DefaultPageSettings.Margins = new Margins(0,0,0,0);
-			printDocument1.PrintPage += new PrintPageEventHandler(printDocument1_PrintPage);
-			printDocument1.Print();
-
-
-
+			return Regex.Replace(bodyText, @"(http|https):\/\/[\w\-_]+(\.[\w\-_]+)+[\w\-\.,@?^=%&amp;:\/~\+#]*[\w\-\@?^=%&amp;\/~\+#]", "<URL>"); //regex is a nightmare. 
 		}
-		private static void printDocument1_PrintPage(object sender, PrintPageEventArgs e)
-		{
-			String toPrint = "";
 
-			using (FileStream stream = new FileStream("EmailTemp.txt", FileMode.Open))
-			using (StreamReader reader = new StreamReader(stream))
+		private static string BodyTextFromPayloadParts(IList<MessagePart> payloadParts)
+		{
+			String bodyText = "No Message Attached.";
+			try
 			{
-				toPrint = reader.ReadToEnd();
+				if (payloadParts != null && payloadParts.Count > 0)
+				{
+					foreach (MessagePart part in payloadParts)
+					{
+						///Console.WriteLine("Part MimeType:" + part.MimeType);
+						if (part.MimeType == "text/plain") //"text/html"
+						{
+							byte[] data = FromBase64ForUrlString(part.Body.Data);
+							string decodedString = Encoding.UTF8.GetString(data);
+							Console.WriteLine(decodedString);
+							bodyText = decodedString;
+						}
+						if(part.MimeType == "multipart/alternative")
+						{
+							return BodyTextFromPayloadParts(part.Parts); //this has to be a recursive method. well. "has."
+						}
+					}
+				}
+
+			}
+			catch (Exception e)
+			{
+				//TODO: change this over to the loggingagent stuff make the bodytext a generic warning like "Could not parse the email, read it properly".
+				Console.WriteLine(e.Message);
+				bodyText = e.Message;
 			}
 
-			int charactersOnPage = 0;
-			int linesPerPage = 0;
+			return bodyText;
+		}
 
-			// Sets the value of charactersOnPage to the number of characters
-			// of stringToPrint that will fit within the bounds of the page.
-			e.Graphics.MeasureString(toPrint, printFont,e.MarginBounds.Size, StringFormat.GenericTypographic,out charactersOnPage, out linesPerPage);
+		public static byte[] FromBase64ForUrlString(string base64ForUrlInput) //thanks to stackoverflow. the original source is ambigous because I've seen it pop up in like 30 different places.
+		{
+			int padChars = (base64ForUrlInput.Length % 4) == 0 ? 0 : (4 - (base64ForUrlInput.Length % 4));
+			StringBuilder result = new StringBuilder(base64ForUrlInput, base64ForUrlInput.Length + padChars);
+			result.Append(String.Empty.PadRight(padChars, '='));
+			result.Replace('-', '+');
+			result.Replace('_', '/');
+			return Convert.FromBase64String(result.ToString());
+		}
 
-			// Draws the string within the bounds of the page
-			e.Graphics.DrawString(toPrint, printFont, Brushes.Black,e.MarginBounds, StringFormat.GenericTypographic);
-
-			// Remove the portion of the string that has been printed.
-			toPrint = toPrint.Substring(charactersOnPage);
-
-			// Check to see if more pages are to be printed.
-			e.HasMorePages = (toPrint.Length > 0);
-
+		private static void PrintWrittenFile() //todo - replace with the "proper" print thing again? This method's pretty elegant.
+		{
+			var psi = new ProcessStartInfo("EmailTemp.txt");
+			psi.UseShellExecute = true;
+			psi.Verb = "print";
+			psi.WindowStyle = ProcessWindowStyle.Hidden;
+			psi.CreateNoWindow = true;
+			var process = System.Diagnostics.Process.Start(psi);
 		}
 	}
 }
