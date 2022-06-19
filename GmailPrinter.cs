@@ -41,20 +41,17 @@ namespace PriorityEmailApp
 //error fixes:
 //Prompt the user to reset
 
-	class GmailPrinter
+	public class GmailPrinter
 	{
 
 		// If modifying these scopes, delete your previously saved credentials
 		// at ~/.credentials/gmail-dotnet-quickstart.json
 		static string[] Scopes = { GmailService.Scope.GmailModify };
 		static string ApplicationName = "AutoGmailPrinter";
-		static GmailService service;
-		
+		static GmailService service;		
 		static IList<MessagePart> payloadParts; //does this need to be here?
 
-
-
-		GmailPrinter()
+		public GmailPrinter()
 		{
 			UserCredential credential;
 
@@ -124,7 +121,7 @@ namespace PriorityEmailApp
 			}
 		}
 
-		private static void SendToPrinter(Message msg)
+		private static void SendToPrinter(Message msg) //rename this to sendMsgToFile or something intelligent sounding
 		{
 			
 			String to = "";

@@ -19,14 +19,14 @@ namespace PriorityEmailApp
 		//the classes we need to work.
 		public static ConfigurationLoader ConfigLoader = new ConfigurationLoader();
 		public static LoggingAgent logger = new LoggingAgent();
-		public static GmailPrinter gmailPrinter = new GmailPrinter();
+		public static GmailPrinter gmailPrinter = new();
 
 
 		static void Main(string[] args)
 		{
 			System.Timers.Timer timer = new System.Timers.Timer(TimeSpan.FromMinutes(.25).TotalMilliseconds);
 			timer.AutoReset = true;
-			timer.Elapsed += new ElapsedEventHandler(EmailCaller);
+			timer.Elapsed += new ElapsedEventHandler(AsyncUpdate); //is it actually Async? Nobody knows!
 			timer.Start();
 			while (true) //horrible! figure out a better way of doing this.
 			{
@@ -36,7 +36,7 @@ namespace PriorityEmailApp
 			}
 		}
 
-		public static void EmailCaller(object sender, ElapsedEventArgs e)
+		public static void AsyncUpdate(object sender, ElapsedEventArgs e)
 		{
 			Console.WriteLine("checking for new mail...");
 			gmailPrinter.getUnreadEmails();
