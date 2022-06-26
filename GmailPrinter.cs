@@ -99,6 +99,7 @@ namespace PriorityEmailApp
 			catch (Exception E)
 			{
 				Console.WriteLine("Error fetching messages! Internet issue?");
+				Console.WriteLine(E.Message); //there's a bug regarding expiring credentials, hard to pinpoint what type it is, so I gotta sniff it out here
 			}
 			if ((messages != null) && (messages.Count > 0))
 			{
@@ -199,7 +200,7 @@ namespace PriorityEmailApp
 				{
 					foreach (MessagePart part in payloadParts)
 					{
-						///Console.WriteLine("Part MimeType:" + part.MimeType);
+						Console.WriteLine("Part MimeType:" + part.MimeType);
 						if (part.MimeType == "text/plain") //"text/html"
 						{
 							byte[] data = FromBase64ForUrlString(part.Body.Data);

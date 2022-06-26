@@ -24,7 +24,7 @@ namespace PriorityEmailApp
 
 		static void Main(string[] args)
 		{
-			System.Timers.Timer timer = new System.Timers.Timer(TimeSpan.FromMinutes(.25).TotalMilliseconds);
+			System.Timers.Timer timer = new System.Timers.Timer(TimeSpan.FromMinutes(.5).TotalMilliseconds);
 			timer.AutoReset = true;
 			timer.Elapsed += new ElapsedEventHandler(AsyncUpdate); //is it actually Async? Nobody knows!
 			timer.Start();
@@ -38,9 +38,15 @@ namespace PriorityEmailApp
 
 		public static void AsyncUpdate(object sender, ElapsedEventArgs e)
 		{
-			Console.WriteLine("checking for new mail...");
+			UpdateConsoleUI();
 			gmailPrinter.getUnreadEmails();
+			Console.WriteLine("checking for new mail...");
+			
 		}
 
+		private static void UpdateConsoleUI()
+		{
+			return;
+		}
 	}
 }
